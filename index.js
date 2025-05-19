@@ -1,24 +1,20 @@
-const express = require("express");
-const cors = require("cors");
-const dotenv = require("dotenv");
-const serviceRoutes = require("./routes/services");
+import express from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+import authRoutes from "./routes/authRoutes.js";
 
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors());
+app.use(cors({ origin: "http://localhost:5173" }));
 app.use(express.json());
 
 // Routes
-app.get("/", (req, res) => {
-  res.json({ message: "Chào mừng đến với API tổ chức sự kiện!" });
-});
-app.use("/services", serviceRoutes);
+app.use("/api/auth", authRoutes);
 
-// Khởi động server
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`Server chạy tại http://localhost:${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
