@@ -1,0 +1,127 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "./generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model users {
+  user_id          Int                @id @default(autoincrement())
+  email            String             @unique @db.VarChar(255)
+  password         String             @db.VarChar(255)
+  user_name        String?            @db.VarChar(100)
+  phone            String?            @db.VarChar(20)
+  role             String             @default("customer") @db.VarChar(20)
+  created_at       DateTime           @default(now()) @db.Timestamp(6)
+  events           events[]
+  addresses        Address[]
+  logs             logs[]
+  notifications    notifications[]
+  support_requests support_requests[]
+}
+
+model Address {
+  Address_id  Int      @id @default(autoincrement())
+  user_id     Int?
+  event_id    Int?     @unique
+  street      String?  @db.VarChar(255)
+  city        String?  @db.VarChar(100)
+  state       String?  @db.VarChar(100)
+  country     String?  @db.VarChar(100)
+  postal_code String?  @db.VarChar(20)
+  latitude    Float?
+  longitude   Float?
+  created_at  DateTime @default(now()) @db.Timestamp(6)
+  user        users?   @relation(fields: [user_id], references: [user_id], onDelete: SetNull, onUpdate: Cascade)
+  event       events?  @relation("EventToAddress")
+}
+
+model events {
+  id               Int                @id @default(autoincrement())
+  user_id          Int?
+  address_id       Int?               @unique
+  title            String             @db.VarChar(255)
+  type             String?            @db.VarChar(50) // Ví dụ: "wedding"
+  date             DateTime           @db.Timestamp(6)
+  status           String             @default("pending") @db.VarChar(20)
+  created_at       DateTime           @default(now()) @db.Timestamp(6)
+  user             users?             @relation(fields: [user_id], references: [user_id], onDelete: SetNull, onUpdate: Cascade)
+  address          Address?           @relation("EventToAddress", fields: [address_id], references: [Address_id], onDelete: SetNull, onUpdate: Cascade)
+  eventServices    eventServices[]
+  payments         payments[]
+  support_requests support_requests[]
+}
+
+model services {
+  id            Int             @id @default(autoincrement())
+  name          String          @db.VarChar(100) // Ví dụ: "Thực đơn trung cấp", "Trang trí cổng"
+  description   String? // Mô tả chi tiết dịch vụ
+  price         Decimal         @db.Decimal(10, 2) // Giá dịch vụ
+  category      String?         @db.VarChar(50) // Ví dụ: "food", "decoration", "photography"
+  created_at    DateTime        @default(now()) @db.Timestamp(6)
+  eventServices eventServices[]
+}
+
+model eventServices {
+  event_id   Int
+  service_id Int
+  quantity   Int?     @default(1) // Số lượng, ví dụ: số khách cho thực đơn
+  event      events   @relation(fields: [event_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  service    services @relation(fields: [service_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([event_id, service_id])
+}
+
+model payments {
+  id             Int      @id @default(autoincrement())
+  event_id       Int?
+  amount         Decimal  @db.Decimal(10, 2) // Tổng chi phí các dịch vụ
+  status         String   @default("pending") @db.VarChar(20)
+  payment_method String?  @db.VarChar(50) // Ví dụ: "VNPay"
+  created_at     DateTime @default(now()) @db.Timestamp(6)
+  event          events?  @relation(fields: [event_id], references: [id], onDelete: SetNull, onUpdate: Cascade)
+}
+
+model support_requests {
+  id          Int       @id @default(autoincrement())
+  user_id     Int?
+  event_id    Int?
+  subject     String    @db.VarChar(255)
+  description String
+  status      String    @default("pending") @db.VarChar(20)
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
+  resolved_at DateTime? @db.Timestamp(6)
+  user        users?    @relation(fields: [user_id], references: [user_id], onDelete: SetNull, onUpdate: Cascade)
+  event       events?   @relation(fields: [event_id], references: [id], onDelete: SetNull, onUpdate: Cascade)
+}
+
+model notifications {
+  id         Int      @id @default(autoincrement())
+  user_id    Int?
+  title      String   @db.VarChar(255) // Ví dụ: "Thiệp mời đám cưới"
+  message    String // Nội dung thiệp hoặc thông báo
+  type       String?  @db.VarChar(50) // Ví dụ: "invitation"
+  is_read    Boolean  @default(false)
+  email_sent Boolean  @default(false)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  user       users?   @relation(fields: [user_id], references: [user_id], onDelete: SetNull, onUpdate: Cascade)
+}
+
+model faqs {
+  id         Int      @id @default(autoincrement())
+  question   String
+  answer     String
+  created_at DateTime @default(now()) @db.Timestamp(6)
+}
+
+model logs {
+  id         Int      @id @default(autoincrement())
+  user_id    Int?
+  action     String?  @db.VarChar(100) // Ví dụ: "Chọn dịch vụ", "Thanh toán"
+  details    Json? // Chi tiết: { "service_id": 1, "event_id": 1 }
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  user       users?   @relation(fields: [user_id], references: [user_id], onDelete: SetNull, onUpdate: Cascade)
+}
