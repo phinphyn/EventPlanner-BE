@@ -1,73 +1,51 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import { PrismaClient } from "@prisma/client";
 import dotenv from "dotenv";
+import { createUser, findUserByEmail, findUserById, getAllUsers, updateUser, deleteUser } from '../models/Account.js';
 
-const prisma = new PrismaClient();
 dotenv.config();
-
 const saltRounds = 10;
 const jwtSecret = process.env.JWT_SECRET;
 
-// API Đăng nhập
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    console.log("Dữ liệu đăng nhập:", { email, password });
-
     if (!email || !password) {
-      console.log("Thiếu email hoặc password");
       return res.status(400).json({ message: "All fields are required." });
     }
 
-    const user = await prisma.users.findUnique({
-      where: { email },
-    });
-
-    if (!user) {
-      console.log(`Không tìm thấy user với email: ${email}`);
-      return res.status(404).json({ message: "User not found." });
+    const account = await findUserByEmail(email);
+    if (!account) {
+      return res.status(404).json({ message: "Account not found." });
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.password);
+    const isPasswordValid = await bcrypt.compare(password, account.password);
     if (!isPasswordValid) {
-      console.log(`Mật khẩu không đúng cho email: ${email}`);
       return res.status(401).json({ message: "Incorrect password." });
     }
 
-    const token = jwt.sign(
-      {
-        user_id: user.user_id,
-        role: user.role,
-      },
-      jwtSecret,
-      { expiresIn: "1h" }
-    );
-
+    const token = jwt.sign({ account_id: account.user_id, role: account.role }, jwtSecret, { expiresIn: "1h" });
     return res.status(200).json({
       status: 1,
       message: "Login successful",
       token,
-      is_admin: user.role === "admin",
-      user: {
-        user_id: user.user_id,
-        email: user.email,
-        user_name: user.user_name,
-        phone: user.phone,
+      is_admin: account.role === "admin",
+      account: {
+        account_id: account.user_id,
+        email: account.email,
+        user_name: account.user_name,
+        phone: account.phone,
       },
     });
   } catch (error) {
-    console.error("Lỗi khi đăng nhập:", error);
-    console.log("Dữ liệu yêu cầu:", req.body);
+    console.error("Error during login:", error);
     return res.status(500).json({ message: "Internal server error!" });
   }
 };
 
-// API Đăng ký
 export const register = async (req, res) => {
   try {
     const { user_name, email, phone, password } = req.body;
-
     if (!user_name || !email || !phone || !password) {
       return res.status(400).json({ message: "All fields are required." });
     }
@@ -81,115 +59,161 @@ export const register = async (req, res) => {
       return res.status(400).json({ message: "Invalid email format." });
     }
 
-    const existingUser = await prisma.users.findUnique({
-      where: { email },
-    });
-
-    if (existingUser) {
-      return res.status(400).json({ message: "Email behav already used" });
+    const existingAccount = await findUserByEmail(email);
+    if (existingAccount) {
+      return res.status(400).json({ message: "Email has already been used" });
     }
 
     const hashedPassword = await bcrypt.hash(password, saltRounds);
-
-    const newUser = await prisma.users.create({
-      data: {
-        email,
-        password: hashedPassword,
-        user_name,
-        phone,
-        role: "customer",
-      },
+    const newAccount = await createUser({
+      email,
+      password: hashedPassword,
+      user_name,
+      phone,
+      role: "customer",
     });
 
-    const token = jwt.sign(
-      {
-        user_id: newUser.user_id,
-        role: newUser.role,
-      },
-      jwtSecret,
-      { expiresIn: "1h" }
-    );
-
+    const token = jwt.sign({ account_id: newAccount.user_id, role: newAccount.role }, jwtSecret, { expiresIn: "1h" });
     return res.status(201).json({
       status: 1,
       message: "Account created successfully!",
       token,
     });
   } catch (error) {
-    console.error("Lỗi khi đăng ký:", error);
-    console.log("Dữ liệu yêu cầu:", req.body);
+    console.error("Error during registration:", error);
     return res.status(500).json({ message: "Internal server error!" });
   }
 };
 
-// API Lấy danh sách tất cả người dùng
-export const returnAllUsers = async (req, res) => {
+export const getAllAccounts = async (req, res) => {
   try {
-    const allUsers = await prisma.users.findMany();
-    return res.status(200).json(allUsers);
-  } catch (error) {
-    console.error("Lỗi khi lấy danh sách tài khoản:", error);
-    return res.status(500).json({ message: "Internal server error!" });
-  }
-};
-
-// API Lấy thông tin người dùng theo user_id
-export const returnUsersInfo = async (req, res) => {
-  try {
-    const { user_id } = req.params;
-    const user = await prisma.users.findUnique({
-      where: { user_id: parseInt(user_id) },
-    });
-
-    if (!user) {
-      return res.status(404).json({ message: "User not found." });
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) {
+      return res.status(401).json({ message: "No token provided." });
     }
-    return res.status(200).json({ user });
-  } catch (error) {
-    console.error("Lỗi khi lấy thông tin tài khoản:", error);
-    return res.status(500).json({ message: "Internal server error!" });
-  }
-};
 
-// API lấy thông tin user từ token
-export const getUserInfo = async (req, res) => {
-  try {
-    const userId = req.user.user_id;
-    const user = await prisma.users.findUnique({
-      where: { user_id: userId },
-    });
-
-    if (!user) {
-      return res.status(404).json({ message: "User not found." });
+    const decoded = jwt.verify(token, jwtSecret);
+    if (decoded.role !== "admin") {
+      return res.status(403).json({ message: "Access denied. Admin only." });
     }
-    return res.status(200).json({ user });
+
+    const accounts = await getAllUsers();
+    return res.status(200).json({
+      status: 1,
+      message: "Accounts retrieved successfully",
+      accounts: accounts.map(account => ({
+        account_id: account.user_id,
+        email: account.email,
+        user_name: account.user_name,
+        phone: account.phone,
+        role: account.role,
+      })),
+    });
   } catch (error) {
-    console.error("Lỗi khi lấy thông tin user:", error);
+    console.error("Error retrieving accounts:", error);
     return res.status(500).json({ message: "Internal server error!" });
   }
 };
 
-// API Refresh Token
-export const refreshToken = async (req, res) => {
+export const getAccountById = async (req, res) => {
   try {
-    const { user_id, role } = req.user;
-
-    const newToken = jwt.sign(
-      {
-        user_id,
-        role,
-      },
-      jwtSecret,
-      { expiresIn: "1h" }
-    );
+    const { id } = req.params;
+    const account = await findUserById(id);
+    if (!account) {
+      return res.status(404).json({ message: "Account not found." });
+    }
 
     return res.status(200).json({
       status: 1,
-      message: "Token refreshed successfully",
-      token: newToken,
+      message: "Account retrieved successfully",
+      account: {
+        account_id: account.user_id,
+        email: account.email,
+        user_name: account.user_name,
+        phone: account.phone,
+        role: account.role,
+      },
     });
   } catch (error) {
-    console.error("Lỗi khi làm mới token:", error);
+    console.error("Error retrieving account:", error);
+    return res.status(500).json({ message: "Internal server error!" });
+  }
+};
+
+export const updateAccount = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { user_name, phone, password } = req.body;
+
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) {
+      return res.status(401).json({ message: "No token provided." });
+    }
+
+    const decoded = jwt.verify(token, jwtSecret);
+    const account = await findUserById(id);
+    if (!account) {
+      return res.status(404).json({ message: "Account not found." });
+    }
+
+    if (decoded.account_id !== parseInt(id) && decoded.role !== "admin") {
+      return res.status(403).json({ message: "Access denied. You can only update your own account or need admin privileges." });
+    }
+
+    const updateData = {};
+    if (user_name) updateData.user_name = user_name;
+    if (phone) updateData.phone = phone;
+    if (password) {
+      if (password.length < 8) {
+        return res.status(400).json({ message: "Password must be at least 8 characters long." });
+      }
+      updateData.password = await bcrypt.hash(password, saltRounds);
+    }
+
+    const updatedAccount = await updateUser(id, updateData); // Sử dụng hàm updateUser từ model
+    return res.status(200).json({
+      status: 1,
+      message: "Account updated successfully",
+      account: {
+        account_id: updatedAccount.user_id,
+        email: updatedAccount.email,
+        user_name: updatedAccount.user_name,
+        phone: updatedAccount.phone,
+        role: updatedAccount.role,
+      },
+    });
+  } catch (error) {
+    console.error("Error updating account:", error);
+    return res.status(500).json({ message: "Internal server error!" });
+  }
+};
+
+export const deleteAccount = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) {
+      return res.status(401).json({ message: "No token provided." });
+    }
+
+    const decoded = jwt.verify(token, jwtSecret);
+    if (decoded.role !== "admin") {
+      return res.status(403).json({ message: "Access denied. Admin only." });
+    }
+
+    const account = await findUserById(id);
+    if (!account) {
+      return res.status(404).json({ message: "Account not found." });
+    }
+
+    await deleteUser(id); // Sử dụng hàm deleteUser từ model
+    return res.status(200).json({
+      status: 1,
+      message: "Account deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting account:", error);
     return res.status(500).json({ message: "Internal server error!" });
   }
 };
